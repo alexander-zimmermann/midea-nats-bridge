@@ -1,0 +1,79 @@
+[project]
+name = "midea-nats-bridge"
+version = "0.1.0"
+description = "Bridge Comfee/Midea dehumidifiers (local LAN protocol) to NATS JetStream"
+readme = "README.md"
+license = "MIT OR GPL-2.0-or-later"
+requires-python = ">=3.14.7"
+authors = [
+    { name = "Alexander Zimmermann" },
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: GNU General Public License v2 or later (GPLv2+)",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Home Automation",
+]
+dependencies = [
+    "midea-beautiful-air>=0.10.7",
+    "nats-py[nkeys]>=2.15.0",
+    "prometheus-client>=0.26.0",
+    "pydantic>=2.13.4",
+    "pydantic-settings>=2.15.0",
+    "pyyaml>=6.0.3",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.16.2",
+    "mypy>=2.3.0",
+    "pre-commit>=4.6.2",
+    "types-PyYAML",
+]
+
+[project.scripts]
+midea-nats-bridge = "midea_nats_bridge.main:run"
+midea-cloud-fetch = "midea_nats_bridge.tools.cloud_fetch:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/midea_nats_bridge"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "A", "C4", "RET", "SIM", "ARG"]
+
+[tool.mypy]
+python_version = "3.14"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+
+[[tool.mypy.overrides]]
+# midea-beautiful-air ships no type stubs.
+module = ["midea_beautiful", "midea_beautiful.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# Boundary modules that call into the untyped midea-beautiful-air API.
+module = [
+    "midea_nats_bridge.device",
+    "midea_nats_bridge.normalize",
+    "midea_nats_bridge.tools.cloud_fetch",
+]
+disallow_untyped_calls = false
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
