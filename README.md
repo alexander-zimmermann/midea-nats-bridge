@@ -40,7 +40,7 @@ Design notes:
   `midea_connected{device=…} 0` instead of restart-looping the pod. A missing
   credential file, by contrast, fails startup — that is misconfiguration.
 
-## Open: mode and fan speed value sets
+## mode and fan speed value sets
 
 `mode` and `fan_speed` are passed through as the appliance's own integers,
 deliberately untranslated. The library accepts mode 0-15 and fan_speed 0-127,
@@ -48,9 +48,19 @@ but those are *library* bounds — a given dehumidifier answers to a handful of
 values, and a wrong guess is invisible: the appliance simply does something
 other than the KNX label promises.
 
-Run the bootstrap below against the real appliances, then document the accepted
-set here before relying on specific rungs. The KNX group addresses use DPT 5.010
-(0..255), so raw values carry either way.
+Observed on an MDDF unit (capabilities `{"auto": 1, "dry_clothes": 1,
+"fan_speed": 7}`) by switching it and reading back:
+
+| Field | Confirmed values | Notes |
+| --- | --- | --- |
+| `mode` | 1, 3 | 1 while targeting a set humidity; 3 reached via the mode button |
+| `fan_speed` | 60, 80 | a third, lower step is likely — `fan_speed: 7` reads as three steps |
+
+Incomplete on purpose rather than filled in by inference. Nothing depends on
+it: the KNX group addresses use DPT 5.010 (0..255), so raw values carry either
+way, and once the bridge runs every value the appliance reports lands in NATS
+and TimescaleDB. Pin the remaining rungs from that history rather than from a
+guess.
 
 ## Devices
 
