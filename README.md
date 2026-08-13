@@ -75,8 +75,13 @@ V3 appliances only hand out their local token/key via the Midea cloud. Fetch
 them once — locally, never in the cluster — then everything runs LAN-only:
 
 ```sh
-uv run midea-cloud-fetch --account you@example.com --password '…' --app Comfee
+uv run midea-cloud-fetch --account you@example.com --password '…' --app "NetHome Plus"
 ```
+
+There is no "Comfee" app on the Midea side — Comfee appliances are registered in
+one of the Midea apps, usually **NetHome Plus** for older units and
+**MSmartHome** for newer ones. Which one holds a given appliance depends on
+where it was onboarded; if one returns nothing, try the other.
 
 This prints each appliance's id, address, token and key, plus the capabilities
 dump and a full state readout. Against an appliance you already have

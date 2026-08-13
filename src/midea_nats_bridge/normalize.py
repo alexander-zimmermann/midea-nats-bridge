@@ -68,19 +68,41 @@ def _read(appliance: DehumidifierState, attr: str) -> Any:
         return None
 
 
+# Optional features, keyed by the capability the appliance must advertise.
+# The library exposes every attribute regardless, defaulting to False, so a
+# model without an ionizer would otherwise publish `ion: false` forever — a
+# KNX group address that never means anything. Gate on what the device says
+# it can do rather than on what the library offers.
+_GATED_SWITCHES = {
+    "ion": ("ion_mode", "ion"),
+    "pump": ("pump", "pump"),
+    "filter_indicator": ("filter_indicator", "filter"),
+}
+
+
+def _capabilities(appliance: DehumidifierState) -> dict[str, Any]:
+    caps = _read(appliance, "capabilities")
+    return caps if isinstance(caps, dict) else {}
+
+
 def normalize_state(appliance: DehumidifierState) -> dict[str, Any]:
     """Flat control-state payload — everything a KNX status GA mirrors."""
     state: dict[str, Any] = {}
+    caps = _capabilities(appliance)
 
     for key, attr in (
         ("power", "running"),
-        ("ion", "ion_mode"),
         ("sleep", "sleep_mode"),
-        ("pump", "pump"),
         ("tank_full", "tank_full"),
-        ("filter_indicator", "filter_indicator"),
         ("defrosting", "defrosting"),
     ):
+        value = _read(appliance, attr)
+        if value is not None:
+            state[key] = bool(value)
+
+    for key, (attr, capability) in _GATED_SWITCHES.items():
+        if not caps.get(capability):
+            continue
         value = _read(appliance, attr)
         if value is not None:
             state[key] = bool(value)
@@ -101,6 +123,7 @@ def normalize_state(appliance: DehumidifierState) -> dict[str, Any]:
 def normalize_environment(appliance: DehumidifierState) -> dict[str, Any]:
     """Flat sensor payload; unsupported or not-yet-reported sensors drop out."""
     environment: dict[str, Any] = {}
+    caps = _capabilities(appliance)
 
     humidity = _read(appliance, "current_humidity")
     if humidity is not None and humidity >= 0:
@@ -110,8 +133,11 @@ def normalize_environment(appliance: DehumidifierState) -> dict[str, Any]:
     if temperature is not None:
         environment["temperature_c"] = round(float(temperature), 1)
 
-    tank_level = _read(appliance, "tank_level")
-    if tank_level is not None and tank_level >= 0:
-        environment["tank_level"] = int(tank_level)
+    # Without the water_level capability the attribute is a constant 0, which
+    # would look like an empty tank rather than an absent sensor.
+    if caps.get("water_level"):
+        tank_level = _read(appliance, "tank_level")
+        if tank_level is not None and tank_level >= 0:
+            environment["tank_level"] = int(tank_level)
 
     return environment
