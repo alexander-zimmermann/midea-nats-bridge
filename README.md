@@ -43,18 +43,18 @@ Design notes:
 ## mode and fan speed value sets
 
 `mode` and `fan_speed` are passed through as the appliance's own integers,
-deliberately untranslated. The library accepts mode 0-15 and fan_speed 0-127,
-but those are *library* bounds — a given dehumidifier answers to a handful of
-values, and a wrong guess is invisible: the appliance simply does something
-other than the KNX label promises.
+deliberately untranslated. The library accepts `mode` 0-15 and `fan_speed`
+0-127, but those are **library** bounds — a given dehumidifier answers to a
+handful of values, and a wrong guess is invisible: the appliance simply does
+something other than the KNX label promises.
 
 Observed on an MDDF unit (capabilities `{"auto": 1, "dry_clothes": 1,
 "fan_speed": 7}`) by switching it and reading back:
 
-| Field | Confirmed values | Notes |
-| --- | --- | --- |
-| `mode` | 1, 3 | 1 while targeting a set humidity; 3 reached via the mode button |
-| `fan_speed` | 60, 80 | a third, lower step is likely — `fan_speed: 7` reads as three steps |
+| Field       | Confirmed values | Notes                                                               |
+| ----------- | ---------------- | ------------------------------------------------------------------- |
+| `mode`      | 1, 3             | 1 while targeting a set humidity; 3 reached via the mode button     |
+| `fan_speed` | 60, 80           | a third, lower step is likely — `fan_speed: 7` reads as three steps |
 
 Incomplete on purpose rather than filled in by inference. Nothing depends on
 it: the KNX group addresses use DPT 5.010 (0..255), so raw values carry either
@@ -103,25 +103,25 @@ uv run midea-cloud-fetch --host 192.0.2.10 --token … --key …
 
 ## Configuration (env)
 
-| Variable | Default | Description |
-| --- | --- | --- |
-| `MIDEA_DEVICES_FILE` | `/etc/midea-nats-bridge/devices.yaml` | Device list (see above) |
-| `MIDEA_CREDENTIALS_DIR` | `/etc/midea-nats-bridge/credentials` | `<name>.token` and `<name>.key` per device |
-| `POLL_INTERVAL` | `60` | Seconds between polls, per appliance |
-| `NATS_SERVERS` | `nats://localhost:4222` | Comma-separated server list |
-| `NATS_NKEY_SEED_FILE` | — | NKey seed (or creds file / user+password file) |
-| `NATS_STREAM_NAME` | `MIDEA` | JetStream stream expected to cover `midea.>` |
-| `METRICS_PORT` | `9090` | `/metrics` + `/healthz` |
+| Variable                | Default                               | Description                                    |
+| ----------------------- | ------------------------------------- | ---------------------------------------------- |
+| `MIDEA_DEVICES_FILE`    | `/etc/midea-nats-bridge/devices.yaml` | Device list (see above)                        |
+| `MIDEA_CREDENTIALS_DIR` | `/etc/midea-nats-bridge/credentials`  | `<name>.token` and `<name>.key` per device     |
+| `POLL_INTERVAL`         | `60`                                  | Seconds between polls, per appliance           |
+| `NATS_SERVERS`          | `nats://localhost:4222`               | Comma-separated server list                    |
+| `NATS_NKEY_SEED_FILE`   | —                                     | NKey seed (or creds file / user+password file) |
+| `NATS_STREAM_NAME`      | `MIDEA`                               | JetStream stream expected to cover `midea.>`   |
+| `METRICS_PORT`          | `9090`                                | `/metrics` + `/healthz`                        |
 
 ## Metrics
 
 Beyond the usual connection and publish counters:
 
-| Metric | Purpose |
-| --- | --- |
-| `midea_connected{device}` | 1 while the appliance answers |
-| `midea_tank_full{device}` | 1 when the tank is full — dehumidification stops silently otherwise |
-| `midea_humidity_percent{device}` | Measured relative humidity |
+| Metric                           | Purpose                                                             |
+| -------------------------------- | ------------------------------------------------------------------- |
+| `midea_connected{device}`        | 1 while the appliance answers                                       |
+| `midea_tank_full{device}`        | 1 when the tank is full — dehumidification stops silently otherwise |
+| `midea_humidity_percent{device}` | Measured relative humidity                                          |
 
 ## Development
 
