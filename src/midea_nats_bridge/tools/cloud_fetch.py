@@ -18,6 +18,12 @@ import sys
 from typing import Any
 
 from midea_beautiful import appliance_state, find_appliances
+from midea_beautiful.midea import SUPPORTED_APPS
+
+# Comfee appliances are registered in one of the Midea apps rather than an app
+# of their own — "NetHome Plus" for older units, "MSmartHome" for newer ones.
+# Which one holds a given appliance depends on where it was onboarded.
+_DEFAULT_APP = "NetHome Plus"
 
 
 def _print_appliance(appliance: Any, show_credentials: bool) -> None:
@@ -68,8 +74,12 @@ def main() -> None:
     parser.add_argument("--password", help="Midea/Comfee app password")
     parser.add_argument(
         "--app",
-        default="Comfee",
-        help="Midea app the account belongs to (default: Comfee)",
+        default=_DEFAULT_APP,
+        choices=sorted(SUPPORTED_APPS),
+        help=(
+            "Midea app the account belongs to. Comfee appliances live in one of "
+            f"these rather than an app of their own (default: {_DEFAULT_APP})"
+        ),
     )
     parser.add_argument(
         "--address",
