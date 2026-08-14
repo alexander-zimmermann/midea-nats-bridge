@@ -53,24 +53,29 @@ Observed on an MDDF unit (capabilities `{"auto": 1, "dry_clothes": 1,
 
 | `mode` | Button pressed |
 | --- | --- |
-| 1 | Smart — regulates towards `target_humidity` |
+| 1 | unidentified — the state the appliance powers on in |
 | 2 | Dry clothes — the `dry_clothes` capability |
-| 3 | Continuous — runs regardless of `target_humidity` |
+| 3 | Continuous |
+| 4 | Smart — the `auto` capability |
 
 | `fan_speed` | |
 | --- | --- |
 | 40 / 60 / 80 | low / medium / high — three steps, matching `fan_speed: 7` (0b111) |
 
-Both sets are complete for this model: three modes matching the two advertised
-capabilities plus continuous, and three fan steps matching the bitmask. Each
-value was tied to a specific button press rather than inferred from a range.
+Each identified value came from pressing that button and reading the result
+back. Note what *not* to conclude: pressing Smart once left `mode` at 1 and it
+was briefly recorded as meaning Smart, but the press had simply not registered.
+An absent change is not evidence of a match — only an observed transition is.
 
-`target_humidity` survives a mode change but only takes effect in Smart, so a
-setpoint control shown while the appliance runs continuous displays a number
-with no influence. Worth handling in whatever drives it.
+In Smart the appliance drives `fan_speed` itself; it jumped 40 → 80 with no
+one touching the fan. A speed control offered in that mode fights the
+appliance's own regulation.
 
-A different model will answer to a different set. Derive it the same way —
-press, then read back — rather than reusing this table.
+`target_humidity` survives a mode change but only acts in Smart, so a setpoint
+shown during continuous operation displays a number with no effect.
+
+A different model answers to a different set. Derive it the same way rather
+than reusing this table.
 
 One caution when reading values back by hand: a *disconnected* appliance object
 returns the library's defaults — `mode 0`, `fan_speed 40`, `target_humidity 50`,
