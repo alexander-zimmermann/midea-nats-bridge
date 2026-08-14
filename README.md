@@ -51,19 +51,26 @@ something other than the label in front of it promises.
 Observed on an MDDF unit (capabilities `{"auto": 1, "dry_clothes": 1,
 "fan_speed": 7}`) by switching it and reading back:
 
-| Field       | Confirmed values | Notes                                                                       |
-| ----------- | ---------------- | --------------------------------------------------------------------------- |
-| `mode`      | 1, 3             | 1 while targeting a set humidity; 3 reached via the mode button             |
-| `fan_speed` | 40, 60, 80       | complete — three steps, matching `fan_speed: 7` (0b111) in the capabilities |
+| `mode` | Button pressed |
+| --- | --- |
+| 1 | Smart — regulates towards `target_humidity` |
+| 2 | Dry clothes — the `dry_clothes` capability |
+| 3 | Continuous — runs regardless of `target_humidity` |
 
-`fan_speed` is settled: three steps were expected from the capability bitmask
-and all three have now been seen. `mode` is not — `auto` and `dry_clothes` are
-both advertised, so at least one further value exists.
+| `fan_speed` | |
+| --- | --- |
+| 40 / 60 / 80 | low / medium / high — three steps, matching `fan_speed: 7` (0b111) |
 
-Left incomplete on purpose rather than filled in by inference. Nothing here
-depends on it — the raw integers are published as-is — and every value the
-appliance reports flows through `.state`. Archive that subject for a while and
-the accepted set reveals itself, which beats guessing.
+Both sets are complete for this model: three modes matching the two advertised
+capabilities plus continuous, and three fan steps matching the bitmask. Each
+value was tied to a specific button press rather than inferred from a range.
+
+`target_humidity` survives a mode change but only takes effect in Smart, so a
+setpoint control shown while the appliance runs continuous displays a number
+with no influence. Worth handling in whatever drives it.
+
+A different model will answer to a different set. Derive it the same way —
+press, then read back — rather than reusing this table.
 
 One caution when reading values back by hand: a *disconnected* appliance object
 returns the library's defaults — `mode 0`, `fan_speed 40`, `target_humidity 50`,
