@@ -53,7 +53,7 @@ Observed on an MDDF unit (capabilities `{"auto": 1, "dry_clothes": 1,
 
 | `mode` | Button pressed |
 | --- | --- |
-| 1 | unidentified — the state the appliance powers on in |
+| 1 | no mode selected — also the state the appliance powers on in |
 | 2 | Dry clothes — the `dry_clothes` capability |
 | 3 | Continuous |
 | 4 | Smart — the `auto` capability |
@@ -68,8 +68,10 @@ was briefly recorded as meaning Smart, but the press had simply not registered.
 An absent change is not evidence of a match — only an observed transition is.
 
 In Smart the appliance drives `fan_speed` itself; it jumped 40 → 80 with no
-one touching the fan. A speed control offered in that mode fights the
-appliance's own regulation.
+one touching the fan, and kept 80 after leaving Smart rather than restoring the
+previous step. A speed control offered during Smart fights the appliance's own
+regulation, and a control elsewhere shows a value the appliance last chose for
+itself.
 
 `target_humidity` survives a mode change but only acts in Smart, so a setpoint
 shown during continuous operation displays a number with no effect.
