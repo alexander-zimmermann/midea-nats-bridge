@@ -51,30 +51,44 @@ something other than the KNX label promises.
 Observed on an MDDF unit (capabilities `{"auto": 1, "dry_clothes": 1,
 "fan_speed": 7}`) by switching it and reading back:
 
-| Field       | Confirmed values | Notes                                                               |
-| ----------- | ---------------- | ------------------------------------------------------------------- |
-| `mode`      | 1, 3             | 1 while targeting a set humidity; 3 reached via the mode button     |
-| `fan_speed` | 60, 80           | a third, lower step is likely — `fan_speed: 7` reads as three steps |
+| Field       | Confirmed values | Notes                                                                       |
+| ----------- | ---------------- | --------------------------------------------------------------------------- |
+| `mode`      | 1, 3             | 1 while targeting a set humidity; 3 reached via the mode button             |
+| `fan_speed` | 40, 60, 80       | complete — three steps, matching `fan_speed: 7` (0b111) in the capabilities |
 
-Incomplete on purpose rather than filled in by inference. Nothing depends on
-it: the KNX group addresses use DPT 5.010 (0..255), so raw values carry either
-way, and once the bridge runs every value the appliance reports lands in NATS
-and TimescaleDB. Pin the remaining rungs from that history rather than from a
-guess.
+`fan_speed` is settled: three steps were expected from the capability bitmask
+and all three have now been seen. `mode` is not — `auto` and `dry_clothes` are
+both advertised, so at least one further value exists.
+
+Left incomplete on purpose rather than filled in by inference. Nothing depends
+on it: the KNX group addresses use DPT 5.010 (0..255), so raw values carry
+either way, and every value the appliance reports lands in `midea_state`. Pin
+the remaining rungs from that history:
+
+```sql
+SELECT DISTINCT mode, fan_speed FROM midea_state WHERE time > now() - INTERVAL '30 days';
+```
+
+One caution when reading values back by hand: a *disconnected* appliance object
+returns the library's defaults — `mode 0`, `fan_speed 40`, `target_humidity 50`,
+`current_humidity 45`, `current_temperature 0`. Those look exactly like
+readings. Check that humidity and temperature differ from 45 and 0 before
+trusting a dump.
 
 ## Devices
 
 Non-secret details live in a YAML file (`MIDEA_DEVICES_FILE`), the token/key
 pair per appliance in `MIDEA_CREDENTIALS_DIR/<name>.token` and `<name>.key`.
 `name` is the subject slug (`midea.<name>.state`), decoupled from the appliance
-id so a device can be swapped without breaking consumers.
+id so a device can be swapped without breaking consumers. Naming it after the
+host keeps a device called the same thing in DNS, in NATS and in the Secret.
 
 ```yaml
 devices:
-  - name: hauswirtschaftsraum
-    host: entfeuchter-hwr.example.com
-  - name: vorratsraum
-    host: entfeuchter-vorratsraum.example.com
+  - name: entfeuchter-kg5
+    host: entfeuchter-kg5.example.com
+  - name: entfeuchter-kg7
+    host: entfeuchter-kg7.example.com
 ```
 
 Duplicate names, an empty list, and unknown keys are rejected at startup.
