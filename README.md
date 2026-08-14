@@ -51,19 +51,33 @@ something other than the label in front of it promises.
 Observed on an MDDF unit (capabilities `{"auto": 1, "dry_clothes": 1,
 "fan_speed": 7}`) by switching it and reading back:
 
-| Field       | Confirmed values | Notes                                                                       |
-| ----------- | ---------------- | --------------------------------------------------------------------------- |
-| `mode`      | 1, 3             | 1 while targeting a set humidity; 3 reached via the mode button             |
-| `fan_speed` | 40, 60, 80       | complete — three steps, matching `fan_speed: 7` (0b111) in the capabilities |
+| `mode` | Button pressed |
+| --- | --- |
+| 1 | no mode selected — also the state the appliance powers on in |
+| 2 | Dry clothes — the `dry_clothes` capability |
+| 3 | Continuous |
+| 4 | Smart — the `auto` capability |
 
-`fan_speed` is settled: three steps were expected from the capability bitmask
-and all three have now been seen. `mode` is not — `auto` and `dry_clothes` are
-both advertised, so at least one further value exists.
+| `fan_speed` | |
+| --- | --- |
+| 40 / 60 / 80 | low / medium / high — three steps, matching `fan_speed: 7` (0b111) |
 
-Left incomplete on purpose rather than filled in by inference. Nothing here
-depends on it — the raw integers are published as-is — and every value the
-appliance reports flows through `.state`. Archive that subject for a while and
-the accepted set reveals itself, which beats guessing.
+Each identified value came from pressing that button and reading the result
+back. Note what *not* to conclude: pressing Smart once left `mode` at 1 and it
+was briefly recorded as meaning Smart, but the press had simply not registered.
+An absent change is not evidence of a match — only an observed transition is.
+
+In Smart the appliance drives `fan_speed` itself; it jumped 40 → 80 with no
+one touching the fan, and kept 80 after leaving Smart rather than restoring the
+previous step. A speed control offered during Smart fights the appliance's own
+regulation, and a control elsewhere shows a value the appliance last chose for
+itself.
+
+`target_humidity` survives a mode change but only acts in Smart, so a setpoint
+shown during continuous operation displays a number with no effect.
+
+A different model answers to a different set. Derive it the same way rather
+than reusing this table.
 
 One caution when reading values back by hand: a *disconnected* appliance object
 returns the library's defaults — `mode 0`, `fan_speed 40`, `target_humidity 50`,
