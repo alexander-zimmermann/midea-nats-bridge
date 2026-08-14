@@ -26,11 +26,11 @@ Design notes:
   channel, unlike Dyson where polling merely backstops the device's own pushes.
   `POLL_INTERVAL` (default 60 s) therefore sets the end-to-end latency.
 - Unchanged payloads are not republished. The appliance reports the same values
-  every poll, and forwarding that would only add noise to NATS and to the KNX
-  writer's change detection.
+  every poll, and forwarding that would only add noise for consumers that react
+  to change.
 - `command.lock` is not an appliance capability. It is a bridge-side flag
-  (`true` = locked) that makes the other commands no-ops, so a KNX/Basalte lock
-  can hold an appliance at its current setting. Unlocking always gets through, a
+  (`true` = locked) that makes the other commands no-ops, so an upstream
+  controller can hold an appliance at its current setting. Unlocking gets through, a
   swallowed command produces no status write, and the flag is restored from the
   last archived state message on startup so a restart cannot silently unlock.
 - A failed poll drops the connection handle so the supervisor reconnects, rather
@@ -46,7 +46,7 @@ Design notes:
 deliberately untranslated. The library accepts `mode` 0-15 and `fan_speed`
 0-127, but those are **library** bounds — a given dehumidifier answers to a
 handful of values, and a wrong guess is invisible: the appliance simply does
-something other than the KNX label promises.
+something other than the label in front of it promises.
 
 Observed on an MDDF unit (capabilities `{"auto": 1, "dry_clothes": 1,
 "fan_speed": 7}`) by switching it and reading back:
@@ -60,14 +60,10 @@ Observed on an MDDF unit (capabilities `{"auto": 1, "dry_clothes": 1,
 and all three have now been seen. `mode` is not — `auto` and `dry_clothes` are
 both advertised, so at least one further value exists.
 
-Left incomplete on purpose rather than filled in by inference. Nothing depends
-on it: the KNX group addresses use DPT 5.010 (0..255), so raw values carry
-either way, and every value the appliance reports lands in `midea_state`. Pin
-the remaining rungs from that history:
-
-```sql
-SELECT DISTINCT mode, fan_speed FROM midea_state WHERE time > now() - INTERVAL '30 days';
-```
+Left incomplete on purpose rather than filled in by inference. Nothing here
+depends on it — the raw integers are published as-is — and every value the
+appliance reports flows through `.state`. Archive that subject for a while and
+the accepted set reveals itself, which beats guessing.
 
 One caution when reading values back by hand: a *disconnected* appliance object
 returns the library's defaults — `mode 0`, `fan_speed 40`, `target_humidity 50`,
@@ -85,10 +81,10 @@ host keeps a device called the same thing in DNS, in NATS and in the Secret.
 
 ```yaml
 devices:
-  - name: entfeuchter-kg5
-    host: entfeuchter-kg5.example.com
-  - name: entfeuchter-kg7
-    host: entfeuchter-kg7.example.com
+  - name: basement
+    host: dehumidifier-basement.example.com
+  - name: cellar
+    host: dehumidifier-cellar.example.com
 ```
 
 Duplicate names, an empty list, and unknown keys are rejected at startup.
