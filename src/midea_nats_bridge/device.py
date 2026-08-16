@@ -70,7 +70,21 @@ class MideaBridge:
 
     @property
     def is_connected(self) -> bool:
-        return self._appliance is not None
+        """Holding a handle is not the same as having data — see _has_data()."""
+        return self._appliance is not None and self._has_data(self._appliance)
+
+    @staticmethod
+    def _has_data(appliance: Any) -> bool:
+        """Whether the library actually read the appliance, rather than
+        handing back a default-initialised state.
+
+        `refresh()` does not raise when the appliance answers nothing; it
+        leaves `state` at its constructor defaults and `online` False. Those
+        defaults are indistinguishable from readings — mode 0, fan_speed 40,
+        target_humidity 50, humidity 45, temperature 0 — so publishing them
+        would write a plausible-looking lie to NATS and onward to KNX.
+        """
+        return bool(getattr(appliance, "online", False))
 
     @property
     def locked(self) -> bool:
@@ -121,9 +135,19 @@ class MideaBridge:
         backoff = _RECONNECT_BACKOFF_START_SECONDS
         while not self._stopping:
             if self._appliance is None:
+                reason: str | None = None
                 try:
-                    self._appliance = await asyncio.to_thread(self._connect)
+                    appliance = await asyncio.to_thread(self._connect)
+                    # A handle without data is not a connection: the library
+                    # answers with a default-initialised state rather than
+                    # raising, and those defaults read like measurements.
+                    if not self._has_data(appliance):
+                        reason = "appliance did not answer the initial refresh"
+                    else:
+                        self._appliance = appliance
                 except Exception as exc:
+                    reason = str(exc)
+                if reason is not None:
                     self._metrics.midea_connected.labels(device=self._name).set(0)
                     self._metrics.reconnects.labels(device=self._name, outcome="error").inc()
                     logger.warning(
@@ -131,7 +155,7 @@ class MideaBridge:
                         self._name,
                         self._config.host,
                         backoff,
-                        exc,
+                        reason,
                     )
                     await asyncio.sleep(backoff)
                     backoff = min(backoff * 2, _RECONNECT_BACKOFF_MAX_SECONDS)
@@ -148,11 +172,18 @@ class MideaBridge:
     async def _poll(self) -> None:
         if self._appliance is None:
             return
+        reason: str | None = None
         try:
             await asyncio.to_thread(self._appliance.refresh)
+            # refresh() stays silent when the appliance answers nothing, so a
+            # successful call is not proof of fresh data.
+            if not self._has_data(self._appliance):
+                reason = "appliance stopped answering"
         except Exception as exc:
+            reason = str(exc)
+        if reason is not None:
             self._metrics.poll_errors.labels(device=self._name).inc()
-            logger.warning("[%s] poll failed: %s", self._name, exc)
+            logger.warning("[%s] poll failed: %s", self._name, reason)
             # Drop the handle so the supervisor reconnects rather than polling
             # a dead socket forever.
             self._appliance = None
@@ -169,7 +200,14 @@ class MideaBridge:
         The appliance is polled on a fixed interval but most of what it reports
         is static between runs; republishing it would only add noise to NATS and
         to the KNX writer's change detection.
+
+        Never publishes without confirmed data. The callers already check, but
+        this is the last point before a value leaves the process, and the cost
+        of a stale default reaching a group address is a plausible-looking lie.
         """
+        if self._appliance is None or not self._has_data(self._appliance):
+            return
+
         state = normalize_state(self._appliance.state)
         state["locked"] = self._locked
         environment = normalize_environment(self._appliance.state)
