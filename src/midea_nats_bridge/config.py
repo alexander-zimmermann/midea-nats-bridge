@@ -67,6 +67,9 @@ class Settings(BaseSettings):
     # Seconds between polls. The Midea LAN protocol has no push channel, so this
     # is the only source of state — unlike Dyson, where polling merely backstops.
     poll_interval: float = 60.0
+    # Seconds after a command before re-reading the appliance to check it took.
+    # Also pulls the status publish forward, off the poll_interval grid. 0 disables.
+    command_confirm_delay: float = 8.0
 
     # NATS
     nats_servers: str = "nats://localhost:4222"
@@ -97,6 +100,13 @@ class Settings(BaseSettings):
     def _poll_interval_positive(cls, v: float) -> float:
         if v <= 0:
             raise ValueError("POLL_INTERVAL must be > 0 seconds")
+        return v
+
+    @field_validator("command_confirm_delay")
+    @classmethod
+    def _confirm_delay_not_negative(cls, v: float) -> float:
+        if v < 0:
+            raise ValueError("COMMAND_CONFIRM_DELAY must be >= 0 seconds")
         return v
 
     @field_validator("nats_subject_prefix")

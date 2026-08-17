@@ -35,6 +35,18 @@ Design notes:
   last archived state message on startup so a restart cannot silently unlock.
 - A failed poll drops the connection handle so the supervisor reconnects, rather
   than polling a dead socket forever.
+- **Commands are confirmed, not assumed.** `apply()` is fire-and-forget: the
+  appliance acknowledges nothing and silently refuses commands it cannot honour
+  — a power change inside the compressor's restart lockout, for instance. The
+  bridge therefore re-reads the appliance `COMMAND_CONFIRM_DELAY` seconds after
+  each command and compares. A disagreement is a warning plus
+  `midea_command_confirmations_total{outcome="mismatch"}`, and the re-read
+  publishes state immediately, so a status consumer sees the result in seconds
+  instead of waiting out `POLL_INTERVAL`. A newer command for the same function
+  supersedes the pending check rather than being reported against it.
+- Every appliance round-trip is serialised per device. `refresh()` overwrites
+  the library's `state` object wholesale, so an overlapping refresh would
+  discard the attribute set for a pending `apply()` and write back the old value.
 - `/healthz` covers NATS and the logging pipeline only. A dehumidifier on a
   switched socket may legitimately be powerless, so it surfaces as
   `midea_connected{device=…} 0` instead of restart-looping the pod. A missing
@@ -51,19 +63,19 @@ something other than the label in front of it promises.
 Observed on an MDDF unit (capabilities `{"auto": 1, "dry_clothes": 1,
 "fan_speed": 7}`) by switching it and reading back:
 
-| `mode` | Button pressed |
-| --- | --- |
-| 1 | no mode selected — also the state the appliance powers on in |
-| 2 | Dry clothes — the `dry_clothes` capability |
-| 3 | Continuous |
-| 4 | Smart — the `auto` capability |
+| `mode` | Button pressed                                               |
+| ------ | ------------------------------------------------------------ |
+| 1      | no mode selected — also the state the appliance powers on in |
+| 2      | Dry clothes — the `dry_clothes` capability                   |
+| 3      | Continuous                                                   |
+| 4      | Smart — the `auto` capability                                |
 
-| `fan_speed` | |
-| --- | --- |
+| `fan_speed`  |                                                                    |
+| ------------ | ------------------------------------------------------------------ |
 | 40 / 60 / 80 | low / medium / high — three steps, matching `fan_speed: 7` (0b111) |
 
 Each identified value came from pressing that button and reading the result
-back. Note what *not* to conclude: pressing Smart once left `mode` at 1 and it
+back. Note what _not_ to conclude: pressing Smart once left `mode` at 1 and it
 was briefly recorded as meaning Smart, but the press had simply not registered.
 An absent change is not evidence of a match — only an observed transition is.
 
@@ -79,7 +91,7 @@ shown during continuous operation displays a number with no effect.
 A different model answers to a different set. Derive it the same way rather
 than reusing this table.
 
-One caution when reading values back by hand: a *disconnected* appliance object
+One caution when reading values back by hand: a _disconnected_ appliance object
 returns the library's defaults — `mode 0`, `fan_speed 40`, `target_humidity 50`,
 `current_humidity 45`, `current_temperature 0`. Those look exactly like
 readings. Check that humidity and temperature differ from 45 and 0 before
@@ -127,25 +139,27 @@ uv run midea-cloud-fetch --host 192.0.2.10 --token … --key …
 
 ## Configuration (env)
 
-| Variable                | Default                               | Description                                    |
-| ----------------------- | ------------------------------------- | ---------------------------------------------- |
-| `MIDEA_DEVICES_FILE`    | `/etc/midea-nats-bridge/devices.yaml` | Device list (see above)                        |
-| `MIDEA_CREDENTIALS_DIR` | `/etc/midea-nats-bridge/credentials`  | `<name>.token` and `<name>.key` per device     |
-| `POLL_INTERVAL`         | `60`                                  | Seconds between polls, per appliance           |
-| `NATS_SERVERS`          | `nats://localhost:4222`               | Comma-separated server list                    |
-| `NATS_NKEY_SEED_FILE`   | —                                     | NKey seed (or creds file / user+password file) |
-| `NATS_STREAM_NAME`      | `MIDEA`                               | JetStream stream expected to cover `midea.>`   |
-| `METRICS_PORT`          | `9090`                                | `/metrics` + `/healthz`                        |
+| Variable                | Default                               | Description                                             |
+| ----------------------- | ------------------------------------- | ------------------------------------------------------- |
+| `MIDEA_DEVICES_FILE`    | `/etc/midea-nats-bridge/devices.yaml` | Device list (see above)                                 |
+| `MIDEA_CREDENTIALS_DIR` | `/etc/midea-nats-bridge/credentials`  | `<name>.token` and `<name>.key` per device              |
+| `POLL_INTERVAL`         | `60`                                  | Seconds between polls, per appliance                    |
+| `COMMAND_CONFIRM_DELAY` | `8`                                   | Seconds after a command before re-reading; `0` disables |
+| `NATS_SERVERS`          | `nats://localhost:4222`               | Comma-separated server list                             |
+| `NATS_NKEY_SEED_FILE`   | —                                     | NKey seed (or creds file / user+password file)          |
+| `NATS_STREAM_NAME`      | `MIDEA`                               | JetStream stream expected to cover `midea.>`            |
+| `METRICS_PORT`          | `9090`                                | `/metrics` + `/healthz`                                 |
 
 ## Metrics
 
 Beyond the usual connection and publish counters:
 
-| Metric                           | Purpose                                                             |
-| -------------------------------- | ------------------------------------------------------------------- |
-| `midea_connected{device}`        | 1 while the appliance answers                                       |
-| `midea_tank_full{device}`        | 1 when the tank is full — dehumidification stops silently otherwise |
-| `midea_humidity_percent{device}` | Measured relative humidity                                          |
+| Metric                                                       | Purpose                                                                                               |
+| ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
+| `midea_connected{device}`                                    | 1 while the appliance answers                                                                         |
+| `midea_tank_full{device}`                                    | 1 when the tank is full — dehumidification stops silently otherwise                                   |
+| `midea_humidity_percent{device}`                             | Measured relative humidity                                                                            |
+| `midea_command_confirmations_total{device,function,outcome}` | Post-command re-read: `confirmed`, `mismatch` (the appliance refused it), `superseded`, `unavailable` |
 
 ## Development
 
