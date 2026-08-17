@@ -272,10 +272,10 @@ class MideaBridge:
     # --- command confirmation ---------------------------------------------
 
     def _schedule_confirmation(self, function: str, value: Any) -> None:
-        delay = self._settings.command_confirm_delay
-        if delay <= 0:
+        delays = self._settings.command_confirm_delays_list
+        if not delays:
             return
-        task = asyncio.create_task(self._confirm(function, value, delay))
+        task = asyncio.create_task(self._confirm(function, value, delays))
         self._confirm_tasks.add(task)
         task.add_done_callback(self._confirm_tasks.discard)
 
@@ -284,42 +284,58 @@ class MideaBridge:
             device=self._name, function=function, outcome=outcome
         ).inc()
 
-    async def _confirm(self, function: str, value: Any, delay: float) -> None:
-        """Re-read after a command and report whether the appliance took it.
+    def _publish_confirmation(self) -> None:
+        self._metrics.last_message_ts.labels(device=self._name).set(time.time())
+        self._publish()
+
+    async def _confirm(self, function: str, value: Any, delays: list[float]) -> None:
+        """Re-read after a command until the appliance agrees, then report.
 
         `apply()` is fire-and-forget: the appliance acknowledges nothing, so a
         refused command — a compressor lockout shortly after a power change, for
         instance — looks exactly like a successful one until a later poll happens
-        to contradict it. Re-reading turns that into a warning and a counter.
-        """
-        await asyncio.sleep(delay)
-        if self._stopping:
-            return
-        if self._commanded.get(function) != value:
-            # A newer command for this function landed while we waited; that
-            # one owns the outcome.
-            self._count_confirmation(function, "superseded")
-            return
+        to contradict it.
 
-        reason = await self._refresh()
+        How long a unit takes to carry a command into its own state is not
+        specified anywhere, so this backs off across `delays` and settles on the
+        first agreement instead of betting on a single interval. Only the last
+        attempt may declare a mismatch; intermediate disagreements publish
+        nothing, because writing the superseded value to a status address would
+        make the group address flap on its way to the right answer.
+        """
+        reason: str | None = None
+        for delay in delays:
+            await asyncio.sleep(delay)
+            if self._stopping:
+                return
+            if self._commanded.get(function) != value:
+                # A newer command for this function landed while we waited; that
+                # one owns the outcome.
+                self._count_confirmation(function, "superseded")
+                return
+
+            reason = await self._refresh()
+            if reason is not None:
+                continue
+            if getattr(self._appliance.state, _COMMAND_ATTRS[function], None) == value:
+                self._count_confirmation(function, "confirmed")
+                self._publish_confirmation()
+                return
+
         if reason is not None:
             self._count_confirmation(function, "unavailable")
             logger.warning("[%s] confirmation poll for %s failed: %s", self._name, function, reason)
             return
 
         observed = getattr(self._appliance.state, _COMMAND_ATTRS[function], None)
-        if observed == value:
-            self._count_confirmation(function, "confirmed")
-        else:
-            self._count_confirmation(function, "mismatch")
-            logger.warning(
-                "[%s] %s did not take: commanded %r, appliance reports %r",
-                self._name,
-                function,
-                value,
-                observed,
-            )
-        # Publish either way — the status subject should carry what the
-        # appliance actually does, and this lands long before the next poll.
-        self._metrics.last_message_ts.labels(device=self._name).set(time.time())
-        self._publish()
+        self._count_confirmation(function, "mismatch")
+        logger.warning(
+            "[%s] %s did not take within %.0fs: commanded %r, appliance reports %r",
+            self._name,
+            function,
+            sum(delays),
+            value,
+            observed,
+        )
+        # The status subject must carry what the appliance actually does.
+        self._publish_confirmation()
