@@ -69,7 +69,7 @@ class FakeBridge:
         self.locked = locked
         self.applied: list[tuple[str, Any]] = []
 
-    def apply_command(self, function: str, value: Any) -> None:
+    async def apply_command(self, function: str, value: Any) -> None:
         if self.fail:
             raise RuntimeError("appliance offline")
         self.applied.append((function, value))

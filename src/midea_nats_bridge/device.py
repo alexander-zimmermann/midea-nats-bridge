@@ -63,6 +63,14 @@ class MideaBridge:
         self._locked = False
         # Last published payload per kind, so an unchanged poll stays off NATS.
         self._last: dict[str, dict[str, Any]] = {}
+        # Serialises every appliance round-trip. refresh() overwrites `state`
+        # wholesale, so an overlapping apply() would write back the refreshed
+        # values instead of the commanded one.
+        self._io_lock = asyncio.Lock()
+        # Latest commanded value per function, so a confirmation that has been
+        # overtaken by a newer command reports nothing.
+        self._commanded: dict[str, Any] = {}
+        self._confirm_tasks: set[asyncio.Task[None]] = set()
 
     @property
     def name(self) -> str:
@@ -113,11 +121,14 @@ class MideaBridge:
 
     async def stop(self) -> None:
         self._stopping = True
-        if self._poll_task is not None:
-            self._poll_task.cancel()
+        for task in (self._poll_task, *self._confirm_tasks):
+            if task is None:
+                continue
+            task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
-                await self._poll_task
-            self._poll_task = None
+                await task
+        self._poll_task = None
+        self._confirm_tasks.clear()
         self._metrics.midea_connected.labels(device=self._name).set(0)
 
     # --- connection & polling -------------------------------------------
@@ -169,18 +180,25 @@ class MideaBridge:
             await asyncio.sleep(self._settings.poll_interval)
             await self._poll()
 
+    async def _refresh(self) -> str | None:
+        """Refresh under the I/O lock; returns a failure reason, or None on success."""
+        if self._appliance is None:
+            return "appliance not connected"
+        try:
+            async with self._io_lock:
+                await asyncio.to_thread(self._appliance.refresh)
+        except Exception as exc:
+            return str(exc)
+        # refresh() stays silent when the appliance answers nothing, so a
+        # successful call is not proof of fresh data.
+        if not self._has_data(self._appliance):
+            return "appliance stopped answering"
+        return None
+
     async def _poll(self) -> None:
         if self._appliance is None:
             return
-        reason: str | None = None
-        try:
-            await asyncio.to_thread(self._appliance.refresh)
-            # refresh() stays silent when the appliance answers nothing, so a
-            # successful call is not proof of fresh data.
-            if not self._has_data(self._appliance):
-                reason = "appliance stopped answering"
-        except Exception as exc:
-            reason = str(exc)
+        reason = await self._refresh()
         if reason is not None:
             self._metrics.poll_errors.labels(device=self._name).inc()
             logger.warning("[%s] poll failed: %s", self._name, reason)
@@ -230,16 +248,78 @@ class MideaBridge:
 
     # --- NATS -> appliance ------------------------------------------------
 
-    def apply_command(self, function: str, value: Any) -> None:
-        """Translate one validated command into a library call (blocking).
+    async def apply_command(self, function: str, value: Any) -> None:
+        """Translate one validated command into a library call.
 
-        The library applies attributes in one `apply()` round-trip; the next
-        poll reports the result, so no optimistic state is published here.
+        The library applies attributes in one `apply()` round-trip and publishes
+        no optimistic state; the confirmation scheduled here re-reads the
+        appliance and is what makes the result visible.
         """
         if self._appliance is None:
             raise RuntimeError("appliance not connected")
         attr = _COMMAND_ATTRS.get(function)
         if attr is None:
             raise ValueError(f"unknown command function {function!r}")
+        async with self._io_lock:
+            await asyncio.to_thread(self._apply_blocking, attr, value)
+        self._commanded[function] = value
+        self._schedule_confirmation(function, value)
+
+    def _apply_blocking(self, attr: str, value: Any) -> None:
         setattr(self._appliance.state, attr, value)
         self._appliance.apply()
+
+    # --- command confirmation ---------------------------------------------
+
+    def _schedule_confirmation(self, function: str, value: Any) -> None:
+        delay = self._settings.command_confirm_delay
+        if delay <= 0:
+            return
+        task = asyncio.create_task(self._confirm(function, value, delay))
+        self._confirm_tasks.add(task)
+        task.add_done_callback(self._confirm_tasks.discard)
+
+    def _count_confirmation(self, function: str, outcome: str) -> None:
+        self._metrics.command_confirmations.labels(
+            device=self._name, function=function, outcome=outcome
+        ).inc()
+
+    async def _confirm(self, function: str, value: Any, delay: float) -> None:
+        """Re-read after a command and report whether the appliance took it.
+
+        `apply()` is fire-and-forget: the appliance acknowledges nothing, so a
+        refused command — a compressor lockout shortly after a power change, for
+        instance — looks exactly like a successful one until a later poll happens
+        to contradict it. Re-reading turns that into a warning and a counter.
+        """
+        await asyncio.sleep(delay)
+        if self._stopping:
+            return
+        if self._commanded.get(function) != value:
+            # A newer command for this function landed while we waited; that
+            # one owns the outcome.
+            self._count_confirmation(function, "superseded")
+            return
+
+        reason = await self._refresh()
+        if reason is not None:
+            self._count_confirmation(function, "unavailable")
+            logger.warning("[%s] confirmation poll for %s failed: %s", self._name, function, reason)
+            return
+
+        observed = getattr(self._appliance.state, _COMMAND_ATTRS[function], None)
+        if observed == value:
+            self._count_confirmation(function, "confirmed")
+        else:
+            self._count_confirmation(function, "mismatch")
+            logger.warning(
+                "[%s] %s did not take: commanded %r, appliance reports %r",
+                self._name,
+                function,
+                value,
+                observed,
+            )
+        # Publish either way — the status subject should carry what the
+        # appliance actually does, and this lands long before the next poll.
+        self._metrics.last_message_ts.labels(device=self._name).set(time.time())
+        self._publish()

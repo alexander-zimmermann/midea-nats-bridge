@@ -73,6 +73,15 @@ class Metrics:
             ["device", "function", "outcome"],
             registry=self.registry,
         )
+        # A refused command is otherwise silent: apply() is fire-and-forget and
+        # the appliance acknowledges nothing.
+        self.command_confirmations = Counter(
+            "midea_command_confirmations_total",
+            "Post-command re-reads by function and outcome "
+            "(confirmed | mismatch | superseded | unavailable)",
+            ["device", "function", "outcome"],
+            registry=self.registry,
+        )
         self.poll_errors = Counter(
             "midea_poll_errors_total",
             "Failed state/environment poll requests to the device",

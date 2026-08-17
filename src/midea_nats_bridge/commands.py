@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 from typing import Any
@@ -136,7 +135,7 @@ class CommandHandler:
             return
 
         try:
-            await asyncio.to_thread(bridge.apply_command, function, value)
+            await bridge.apply_command(function, value)
         except Exception as exc:
             self._count(device, function, "error")
             logger.warning("[%s] command %s=%r failed: %s", device, function, value, exc)
