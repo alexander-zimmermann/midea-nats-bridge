@@ -67,9 +67,11 @@ class Settings(BaseSettings):
     # Seconds between polls. The Midea LAN protocol has no push channel, so this
     # is the only source of state — unlike Dyson, where polling merely backstops.
     poll_interval: float = 60.0
-    # Seconds after a command before re-reading the appliance to check it took.
-    # Also pulls the status publish forward, off the poll_interval grid. 0 disables.
-    command_confirm_delay: float = 8.0
+    # Waits between re-reads after a command, in seconds, until the appliance
+    # agrees. Backing off rather than guessing one delay: how long a unit takes
+    # to carry a command into its own state is not specified anywhere and varies
+    # with what it was doing. Empty disables confirmation.
+    command_confirm_delays: str = "1,2,4,8,16"
 
     # NATS
     nats_servers: str = "nats://localhost:4222"
@@ -95,6 +97,10 @@ class Settings(BaseSettings):
         """One wildcard subscription covers every device."""
         return f"{self.nats_subject_prefix}.*.command.>"
 
+    @property
+    def command_confirm_delays_list(self) -> list[float]:
+        return [float(p) for p in self.command_confirm_delays.split(",") if p.strip()]
+
     @field_validator("poll_interval")
     @classmethod
     def _poll_interval_positive(cls, v: float) -> float:
@@ -102,11 +108,20 @@ class Settings(BaseSettings):
             raise ValueError("POLL_INTERVAL must be > 0 seconds")
         return v
 
-    @field_validator("command_confirm_delay")
+    @field_validator("command_confirm_delays")
     @classmethod
-    def _confirm_delay_not_negative(cls, v: float) -> float:
-        if v < 0:
-            raise ValueError("COMMAND_CONFIRM_DELAY must be >= 0 seconds")
+    def _confirm_delays_valid(cls, v: str) -> str:
+        for part in v.split(","):
+            if not part.strip():
+                continue
+            try:
+                seconds = float(part)
+            except ValueError as exc:
+                raise ValueError(
+                    f"COMMAND_CONFIRM_DELAYS must be comma-separated numbers, got {part!r}"
+                ) from exc
+            if seconds < 0:
+                raise ValueError("COMMAND_CONFIRM_DELAYS entries must be >= 0 seconds")
         return v
 
     @field_validator("nats_subject_prefix")

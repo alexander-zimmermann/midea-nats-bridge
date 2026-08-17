@@ -52,6 +52,7 @@ class ObedientAppliance:
     def __init__(self, obeys: bool = True) -> None:
         self.online = True
         self.obeys = obeys
+        self.refreshes = 0
         self.state = FakeState()
         self._committed = FakeState()
 
@@ -60,7 +61,26 @@ class ObedientAppliance:
             self._committed = FakeState(self.state.running, self.state.mode)
 
     def refresh(self) -> None:
+        self.refreshes += 1
         self.state = FakeState(self._committed.running, self._committed.mode)
+
+
+class SlowAppliance(ObedientAppliance):
+    """Carries a command into its own state only after `after` re-reads."""
+
+    def __init__(self, after: int) -> None:
+        super().__init__()
+        self.after = after
+        self._pending: FakeState | None = None
+
+    def apply(self) -> None:
+        self._pending = FakeState(self.state.running, self.state.mode)
+
+    def refresh(self) -> None:
+        if self._pending is not None and self.refreshes + 1 >= self.after:
+            self._committed = self._pending
+            self._pending = None
+        super().refresh()
 
 
 class FakePublisher:
@@ -72,14 +92,14 @@ class FakePublisher:
 
 
 def _bridge(
-    monkeypatch: pytest.MonkeyPatch, appliance: Any, delay: float = 0.01
+    monkeypatch: pytest.MonkeyPatch, appliance: Any, delays: str = "0.01"
 ) -> tuple[MideaBridge, Metrics, FakePublisher]:
     monkeypatch.setattr(
         Settings, "read_device_credentials", lambda _self, _name: Credentials(token="t", key="k")
     )
     metrics, publisher = Metrics(), FakePublisher()
     bridge = MideaBridge(
-        Settings(command_confirm_delay=delay),
+        Settings(command_confirm_delays=delays),
         DeviceConfig(name="kg5", host="h"),
         publisher,  # type: ignore[arg-type]
         metrics,
@@ -101,15 +121,35 @@ async def test_confirmation_flags_a_command_the_appliance_refused(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # The compressor lockout case: apply() succeeds, the appliance ignores it.
-    bridge, metrics, publisher = _bridge(monkeypatch, ObedientAppliance(obeys=False))
+    appliance = ObedientAppliance(obeys=False)
+    bridge, metrics, publisher = _bridge(monkeypatch, appliance, delays="0.01,0.01,0.01")
 
     await bridge.apply_command("power", True)
     await _settle(bridge)
 
+    # Only the last attempt may declare a mismatch — every delay is spent first.
+    assert appliance.refreshes == 3
     assert _confirmations(metrics, "power", "mismatch") == 1
     assert _confirmations(metrics, "power", "confirmed") == 0
-    # The status subject must carry what the appliance does, not what we asked.
-    assert ("state", {"power": False, "mode": 1, "locked": False}) in publisher.published
+    # The status subject must carry what the appliance does, not what we asked,
+    # and only once — an intermediate publish would flap the group address.
+    assert publisher.published.count(("state", {"power": False, "mode": 1, "locked": False})) == 1
+
+
+async def test_confirmation_stops_at_the_first_agreement(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The point of backing off: a unit that needs a moment is confirmed as soon
+    # as it catches up, without spending the rest of the schedule.
+    appliance = SlowAppliance(after=3)
+    bridge, metrics, _ = _bridge(monkeypatch, appliance, delays="0.01,0.01,0.01,0.01,0.01")
+
+    await bridge.apply_command("power", True)
+    await _settle(bridge)
+
+    assert appliance.refreshes == 3
+    assert _confirmations(metrics, "power", "confirmed") == 1
+    assert _confirmations(metrics, "power", "mismatch") == 0
 
 
 async def test_confirmation_accepts_a_command_that_took(
@@ -127,7 +167,7 @@ async def test_confirmation_accepts_a_command_that_took(
 async def test_a_newer_command_owns_the_outcome(monkeypatch: pytest.MonkeyPatch) -> None:
     # Basalte re-asserting within the confirmation window must not be reported
     # as a mismatch against the value it superseded.
-    bridge, metrics, _ = _bridge(monkeypatch, ObedientAppliance(), delay=0.05)
+    bridge, metrics, _ = _bridge(monkeypatch, ObedientAppliance(), delays="0.05")
 
     await bridge.apply_command("power", True)
     await bridge.apply_command("power", False)
@@ -158,7 +198,7 @@ async def test_refresh_cannot_interleave_with_apply(monkeypatch: pytest.MonkeyPa
             super().refresh()
 
     appliance = OrderedAppliance()
-    bridge, _, _ = _bridge(monkeypatch, appliance, delay=0)
+    bridge, _, _ = _bridge(monkeypatch, appliance, delays="")
 
     await asyncio.gather(bridge.apply_command("power", True), bridge._refresh())
 

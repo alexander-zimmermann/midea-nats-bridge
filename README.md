@@ -38,12 +38,22 @@ Design notes:
 - **Commands are confirmed, not assumed.** `apply()` is fire-and-forget: the
   appliance acknowledges nothing and silently refuses commands it cannot honour
   — a power change inside the compressor's restart lockout, for instance. The
-  bridge therefore re-reads the appliance `COMMAND_CONFIRM_DELAY` seconds after
-  each command and compares. A disagreement is a warning plus
-  `midea_command_confirmations_total{outcome="mismatch"}`, and the re-read
-  publishes state immediately, so a status consumer sees the result in seconds
-  instead of waiting out `POLL_INTERVAL`. A newer command for the same function
-  supersedes the pending check rather than being reported against it.
+  bridge therefore re-reads the appliance after each command and compares
+  against what was asked, backing off over `COMMAND_CONFIRM_DELAYS` (default
+  `1,2,4,8,16` seconds) and settling on the first agreement. How long a unit
+  takes to carry a command into its own state is not specified anywhere and
+  varies with what it was doing, so backing off beats betting on one interval.
+  Only the last attempt may declare a mismatch — a warning plus
+  `midea_command_confirmations_total{outcome="mismatch"}`.
+
+  Confirming also publishes state, so a status consumer usually sees the result
+  about a second after the command instead of waiting out `POLL_INTERVAL`.
+  Intermediate disagreements publish nothing: writing the superseded value to a
+  status address would make the group address flap on its way to the right
+  answer. A newer command for the same function supersedes the pending check
+  rather than being reported against it — what happens when an upstream
+  controller re-asserts inside the window.
+
 - Every appliance round-trip is serialised per device. `refresh()` overwrites
   the library's `state` object wholesale, so an overlapping refresh would
   discard the attribute set for a pending `apply()` and write back the old value.
@@ -139,16 +149,16 @@ uv run midea-cloud-fetch --host 192.0.2.10 --token … --key …
 
 ## Configuration (env)
 
-| Variable                | Default                               | Description                                             |
-| ----------------------- | ------------------------------------- | ------------------------------------------------------- |
-| `MIDEA_DEVICES_FILE`    | `/etc/midea-nats-bridge/devices.yaml` | Device list (see above)                                 |
-| `MIDEA_CREDENTIALS_DIR` | `/etc/midea-nats-bridge/credentials`  | `<name>.token` and `<name>.key` per device              |
-| `POLL_INTERVAL`         | `60`                                  | Seconds between polls, per appliance                    |
-| `COMMAND_CONFIRM_DELAY` | `8`                                   | Seconds after a command before re-reading; `0` disables |
-| `NATS_SERVERS`          | `nats://localhost:4222`               | Comma-separated server list                             |
-| `NATS_NKEY_SEED_FILE`   | —                                     | NKey seed (or creds file / user+password file)          |
-| `NATS_STREAM_NAME`      | `MIDEA`                               | JetStream stream expected to cover `midea.>`            |
-| `METRICS_PORT`          | `9090`                                | `/metrics` + `/healthz`                                 |
+| Variable                 | Default                               | Description                                                     |
+| ------------------------ | ------------------------------------- | --------------------------------------------------------------- |
+| `MIDEA_DEVICES_FILE`     | `/etc/midea-nats-bridge/devices.yaml` | Device list (see above)                                         |
+| `MIDEA_CREDENTIALS_DIR`  | `/etc/midea-nats-bridge/credentials`  | `<name>.token` and `<name>.key` per device                      |
+| `POLL_INTERVAL`          | `60`                                  | Seconds between polls, per appliance                            |
+| `COMMAND_CONFIRM_DELAYS` | `1,2,4,8,16`                          | Waits between post-command re-reads, in seconds; empty disables |
+| `NATS_SERVERS`           | `nats://localhost:4222`               | Comma-separated server list                                     |
+| `NATS_NKEY_SEED_FILE`    | —                                     | NKey seed (or creds file / user+password file)                  |
+| `NATS_STREAM_NAME`       | `MIDEA`                               | JetStream stream expected to cover `midea.>`                    |
+| `METRICS_PORT`           | `9090`                                | `/metrics` + `/healthz`                                         |
 
 ## Metrics
 
