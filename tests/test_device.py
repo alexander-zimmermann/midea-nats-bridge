@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -92,7 +92,8 @@ class FakePublisher:
     def __init__(self) -> None:
         self.published: list[tuple[str, dict[str, Any]]] = []
 
-    def enqueue(self, _device: str, kind: str, _subject: str, payload: dict[str, Any]) -> None:
+    def enqueue(self, ctx: object, _subject: str, payload: dict[str, Any]) -> None:
+        _device, kind = cast(tuple[str, str], ctx)
         self.published.append((kind, payload))
 
 

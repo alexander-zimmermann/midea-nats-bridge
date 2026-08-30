@@ -15,11 +15,11 @@ import time
 from typing import Any
 
 from midea_beautiful import appliance_state
+from nats_bridge_core import Publisher
 
 from .config import DeviceConfig, Settings
 from .metrics import Metrics
 from .normalize import normalize_environment, normalize_state
-from .publisher import Publisher
 
 logger = logging.getLogger(__name__)
 
@@ -272,7 +272,7 @@ class MideaBridge:
             if not force and self._last.get(kind) == payload:
                 continue
             self._last[kind] = dict(payload)
-            self._publisher.enqueue(self._name, kind, subject, payload)
+            self._publisher.enqueue((self._name, kind), subject, payload)
 
     def _publish_availability(self, online: bool) -> None:
         """Publish a change in whether the bridge holds a live link to the appliance.
@@ -286,7 +286,7 @@ class MideaBridge:
             return
         self._online = online
         self._publisher.enqueue(
-            self._name, "availability", self._config.availability_subject, {"online": online}
+            (self._name, "availability"), self._config.availability_subject, {"online": online}
         )
 
     # --- NATS -> appliance ------------------------------------------------
