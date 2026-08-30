@@ -12,6 +12,9 @@ on:
 
 jobs:
   image:
+    permissions:
+      contents: read
+      packages: write
     uses: alexander-zimmermann/lares/.github/workflows/sidecar-python-release.yaml@main
     with:
-      tag: ${{ inputs.tag }}
+      tag: ${{ github.event.inputs.tag || '' }}
