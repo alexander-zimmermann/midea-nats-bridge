@@ -9,7 +9,7 @@ from typing import Any
 from nats.aio.msg import Msg
 
 from .config import Settings
-from .device import COMMAND_FUNCTIONS, MideaBridge
+from .device import COMMAND_FUNCTIONS, CommandNotDeliveredError, MideaBridge
 from .metrics import Metrics
 from .publisher import Publisher
 
@@ -136,6 +136,16 @@ class CommandHandler:
 
         try:
             await bridge.apply_command(function, value)
+        except CommandNotDeliveredError as exc:
+            self._count(device, function, "deferred")
+            logger.warning(
+                "[%s] command %s=%r not delivered (%s); held until the appliance answers",
+                device,
+                function,
+                value,
+                exc,
+            )
+            return
         except Exception as exc:
             self._count(device, function, "error")
             logger.warning("[%s] command %s=%r failed: %s", device, function, value, exc)

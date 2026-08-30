@@ -41,6 +41,10 @@ _COMMAND_ATTRS = {
 }
 
 
+class CommandNotDeliveredError(Exception):
+    """The appliance never received the command; it is held as desired state."""
+
+
 class MideaBridge:
     """Owns one appliance's connection and publishes its normalized state to NATS."""
 
@@ -70,6 +74,11 @@ class MideaBridge:
         # Latest commanded value per function, so a confirmation that has been
         # overtaken by a newer command reports nothing.
         self._commanded: dict[str, Any] = {}
+        # Commands the appliance never received, held as the desired state and
+        # re-sent once it answers again. An upstream controller reacting to a
+        # room sensor only ever announces changes, so a command dropped while
+        # the appliance is off the WLAN would stay lost until the next edge.
+        self._pending: dict[str, Any] = {}
         self._confirm_tasks: set[asyncio.Task[None]] = set()
 
     @property
@@ -87,12 +96,20 @@ class MideaBridge:
         handing back a default-initialised state.
 
         `refresh()` does not raise when the appliance answers nothing; it
-        leaves `state` at its constructor defaults and `online` False. Those
-        defaults are indistinguishable from readings — mode 0, fan_speed 40,
+        leaves `state` at its constructor defaults. Those defaults are
+        indistinguishable from readings — mode 0, fan_speed 40,
         target_humidity 50, humidity 45, temperature 0 — so publishing them
         would write a plausible-looking lie to NATS and onward to KNX.
+
+        Both flags are needed. `LanDevice.online` is a network-level flag: the
+        library raises it the moment an appliance answers discovery, before any
+        status response has been parsed, and leaves it up while a refresh
+        quietly returns nothing. Only the appliance's own flag means "a status
+        response was parsed into this state".
         """
-        return bool(getattr(appliance, "online", False))
+        return bool(getattr(appliance, "online", False)) and bool(
+            getattr(getattr(appliance, "state", None), "online", False)
+        )
 
     @property
     def locked(self) -> bool:
@@ -176,6 +193,7 @@ class MideaBridge:
                 backoff = _RECONNECT_BACKOFF_START_SECONDS
                 logger.info("[%s] connected: %s", self._name, self._config.host)
                 self._publish()
+                await self._reassert_pending()
 
             await asyncio.sleep(self._settings.poll_interval)
             await self._poll()
@@ -254,20 +272,76 @@ class MideaBridge:
         The library applies attributes in one `apply()` round-trip and publishes
         no optimistic state; the confirmation scheduled here re-reads the
         appliance and is what makes the result visible.
+
+        Raises CommandNotDeliveredError when the appliance never received the command —
+        it is unreachable, or the round-trip failed. The value is then held as
+        the desired state and re-sent on the next successful connect, because
+        the sender announces changes and would not repeat itself.
         """
-        if self._appliance is None:
-            raise RuntimeError("appliance not connected")
         attr = _COMMAND_ATTRS.get(function)
         if attr is None:
             raise ValueError(f"unknown command function {function!r}")
-        async with self._io_lock:
-            await asyncio.to_thread(self._apply_blocking, attr, value)
+        # Set before the round-trip: this is the latest intent either way, and a
+        # confirmation still waiting on the previous value must see itself
+        # superseded even when this command cannot be delivered.
         self._commanded[function] = value
+
+        if self._appliance is None:
+            self._defer(function, value)
+            raise CommandNotDeliveredError("appliance not connected")
+        try:
+            async with self._io_lock:
+                await asyncio.to_thread(self._apply_blocking, attr, value)
+        except Exception as exc:
+            self._defer(function, value)
+            raise CommandNotDeliveredError(str(exc)) from exc
+
+        self._pending.pop(function, None)
+        self._track_pending()
         self._schedule_confirmation(function, value)
 
     def _apply_blocking(self, attr: str, value: Any) -> None:
         setattr(self._appliance.state, attr, value)
         self._appliance.apply()
+
+    # --- undelivered commands ---------------------------------------------
+
+    def _track_pending(self) -> None:
+        self._metrics.pending_commands.labels(device=self._name).set(len(self._pending))
+
+    def _defer(self, function: str, value: Any) -> None:
+        self._pending[function] = value
+        self._track_pending()
+
+    async def _reassert_pending(self) -> None:
+        """Re-send commands the appliance never received, in the order they came.
+
+        Called once per successful connect. A command that fails again is left
+        pending for the next one; nothing else re-tries, so a permanently
+        unreachable appliance costs one round-trip per reconnect.
+        """
+        if not self._pending:
+            return
+        if self._locked:
+            # The lock holds the appliance at its current setting, so a queued
+            # command is swallowed like any other rather than fired late.
+            logger.info(
+                "[%s] dropping %d held command(s): appliance locked", self._name, len(self._pending)
+            )
+            self._pending.clear()
+            self._track_pending()
+            return
+
+        for function, value in list(self._pending.items()):
+            logger.info("[%s] re-asserting held command %s=%r", self._name, function, value)
+            try:
+                await self.apply_command(function, value)
+            except CommandNotDeliveredError as exc:
+                logger.warning(
+                    "[%s] re-assert of %s failed, still held: %s", self._name, function, exc
+                )
+                return
+            self._metrics.command_reasserts.labels(device=self._name, function=function).inc()
 
     # --- command confirmation ---------------------------------------------
 

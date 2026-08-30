@@ -54,6 +54,20 @@ Design notes:
   rather than being reported against it — what happens when an upstream
   controller re-asserts inside the window.
 
+- **A command the appliance never received is held, not dropped.** These units
+  drop off the WLAN regularly, and an upstream controller reacting to a room
+  sensor only announces *changes* — so a command lost while the appliance was
+  unreachable stays lost until the next edge, which can be hours. The bridge
+  therefore keeps the last undelivered value per function as the desired state
+  and re-sends it on the next successful connect, until it is delivered or a
+  newer command replaces it. `midea_pending_commands` shows what is waiting,
+  `midea_command_reasserts_total` how often it had to be re-sent, and
+  `midea_commands_total{outcome="deferred"}` how often a command could not go
+  straight through. A locked appliance drops what is held rather than firing it
+  late. Nothing survives a pod restart; the desired state lives in memory.
+
+  Delivery is not the same as agreement — a command that reached the appliance
+  and was ignored is a `mismatch` above, not something to re-send.
 - Every appliance round-trip is serialised per device. `refresh()` overwrites
   the library's `state` object wholesale, so an overlapping refresh would
   discard the attribute set for a pending `apply()` and write back the old value.
@@ -101,11 +115,18 @@ shown during continuous operation displays a number with no effect.
 A different model answers to a different set. Derive it the same way rather
 than reusing this table.
 
-One caution when reading values back by hand: a _disconnected_ appliance object
-returns the library's defaults — `mode 0`, `fan_speed 40`, `target_humidity 50`,
-`current_humidity 45`, `current_temperature 0`. Those look exactly like
-readings. Check that humidity and temperature differ from 45 and 0 before
-trusting a dump.
+One caution when reading values back by hand: an appliance object that has not
+been read returns the library's defaults — `mode 0`, `fan_speed 40`,
+`target_humidity 50`, `current_humidity 45`, `current_temperature 0`. Those look
+exactly like readings. Check that humidity and temperature differ from 45 and 0
+before trusting a dump.
+
+`LanDevice.online` does not rule it out. That flag is about the network
+exchange: the library raises it the moment an appliance answers discovery, with
+the state still at those defaults, and leaves it up while a refresh quietly
+returns nothing. Only the `Appliance` object's own `online` — set when a status
+response is parsed — means the values are real, which is why the bridge requires
+both before publishing.
 
 ## Devices
 

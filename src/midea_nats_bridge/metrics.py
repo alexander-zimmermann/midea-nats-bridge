@@ -69,8 +69,24 @@ class Metrics:
         )
         self.commands = Counter(
             "midea_commands_total",
-            "Commands received on NATS by function and outcome (ok | invalid | error)",
+            "Commands received on NATS by function and outcome "
+            "(ok | deferred | locked | invalid | error | unknown_device)",
             ["device", "function", "outcome"],
+            registry=self.registry,
+        )
+        # A command the appliance never received is held, not dropped. Both
+        # metrics are the only way to see that from outside: the sender reacts
+        # to changes and never repeats itself.
+        self.pending_commands = Gauge(
+            "midea_pending_commands",
+            "Commands accepted but not yet delivered to the appliance",
+            ["device"],
+            registry=self.registry,
+        )
+        self.command_reasserts = Counter(
+            "midea_command_reasserts_total",
+            "Held commands re-sent after the appliance became reachable again",
+            ["device", "function"],
             registry=self.registry,
         )
         # A refused command is otherwise silent: apply() is fire-and-forget and
