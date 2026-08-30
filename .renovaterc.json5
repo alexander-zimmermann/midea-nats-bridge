@@ -15,6 +15,19 @@
     "enabled": true,
     "schedule": ["before 6am on monday"],
   },
+  // pep621 skips PEP 508 direct references, so the core dependency is
+  // tracked by its git tag here instead.
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/(^|/)pyproject\\.toml$/"],
+      "matchStrings": [
+        "git\\+https://github\\.com/(?<depName>[^@\\s\"]+?)@(?<currentValue>v[^\\s\"]+)",
+      ],
+      "datasourceTemplate": "github-tags",
+      "versioningTemplate": "semver",
+    },
+  ],
   "packageRules": [
     {
       "matchManagers": ["github-actions"],
