@@ -26,6 +26,10 @@ on:
 
 jobs:
   renovate:
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
     uses: alexander-zimmermann/lares/.github/workflows/sidecar-renovate.yaml@main
     with:
       dryRun: ${{ inputs.dryRun && 'full' || '' }}
