@@ -42,6 +42,10 @@ class DeviceConfig(BaseModel):
     def environment_subject(self) -> str:
         return f"{self.subject_prefix}.{self.name}.environment"
 
+    @property
+    def availability_subject(self) -> str:
+        return f"{self.subject_prefix}.{self.name}.availability"
+
 
 class Credentials(BaseModel):
     """The V3 token/key pair, obtained once from the cloud and reused locally."""

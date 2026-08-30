@@ -13,6 +13,7 @@ Comfee dehumidifiers (LAN :6444)
     → midea.<device>.state        {"power": true, "mode": 1, "fan_speed": 40,
                                    "target_humidity": 55, "tank_full": false, ...}
     → midea.<device>.environment  {"humidity": 62, "temperature_c": 21.4, "tank_level": 30}
+    → midea.<device>.availability {"online": true}
     ← midea.<device>.command.{power,mode,fan_speed,target_humidity,lock}  {"value": ...}
 ```
 
@@ -54,6 +55,14 @@ Design notes:
   rather than being reported against it — what happens when an upstream
   controller re-asserts inside the window.
 
+- **Reachability is published, not just counted.** `state` carries what the
+  appliance reports; when the link is down there is nothing to report and every
+  status address keeps its last value, which is indistinguishable from a settled
+  appliance. `midea.<device>.availability` therefore carries `{"online": …}` on
+  every transition — up on a connect, down on a failed connect or poll, and down
+  when the bridge stops, while the publisher still drains its queue. Only
+  transitions are published; a unit that fails to answer every minute would
+  otherwise repeat the same "down" forever.
 - **A command the appliance never received is held, not dropped.** These units
   drop off the WLAN regularly, and an upstream controller reacting to a room
   sensor only announces *changes* — so a command lost while the appliance was

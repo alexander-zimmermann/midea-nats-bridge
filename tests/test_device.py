@@ -292,3 +292,45 @@ async def test_refresh_cannot_interleave_with_apply(monkeypatch: pytest.MonkeyPa
 
     between = appliance.events[appliance.events.index("apply-start") :]
     assert "refresh" not in between[: between.index("apply-end")]
+
+
+async def test_availability_is_published_only_on_change(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Every failed poll would otherwise republish the same "down", and the KNX
+    # writer only suppresses repeats it can see.
+    bridge, _, publisher = _bridge(monkeypatch, ObedientAppliance())
+
+    bridge._publish_availability(True)
+    bridge._publish_availability(True)
+    bridge._publish_availability(False)
+
+    assert [payload for kind, payload in publisher.published if kind == "availability"] == [
+        {"online": True},
+        {"online": False},
+    ]
+
+
+async def test_a_failed_poll_reports_the_appliance_unreachable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class DeadAppliance(ObedientAppliance):
+        def refresh(self) -> None:
+            raise OSError("timed out")
+
+    bridge, _, publisher = _bridge(monkeypatch, DeadAppliance())
+    bridge._online = True  # the connect that preceded this poll
+
+    await bridge._poll()
+
+    assert bridge._appliance is None
+    assert ("availability", {"online": False}) in publisher.published
+
+
+async def test_stopping_reports_the_link_as_down(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A status address left reading "connected" after the pod goes away is the
+    # lie this signal exists to prevent.
+    bridge, _, publisher = _bridge(monkeypatch, ObedientAppliance())
+    bridge._online = True
+
+    await bridge.stop()
+
+    assert ("availability", {"online": False}) in publisher.published

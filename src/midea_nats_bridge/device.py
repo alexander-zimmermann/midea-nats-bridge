@@ -79,6 +79,9 @@ class MideaBridge:
         # room sensor only ever announces changes, so a command dropped while
         # the appliance is off the WLAN would stay lost until the next edge.
         self._pending: dict[str, Any] = {}
+        # Last published availability, None until the first connect attempt
+        # settles it. Only transitions are published.
+        self._online: bool | None = None
         self._confirm_tasks: set[asyncio.Task[None]] = set()
 
     @property
@@ -137,6 +140,10 @@ class MideaBridge:
         self._poll_task = asyncio.create_task(self._supervise())
 
     async def stop(self) -> None:
+        # Before cancelling anything, and while the publisher still drains its
+        # queue: a stopped bridge holds no connection, and a status address left
+        # reading "connected" is the kind of lie this signal exists to prevent.
+        self._publish_availability(False)
         self._stopping = True
         for task in (self._poll_task, *self._confirm_tasks):
             if task is None:
@@ -176,6 +183,7 @@ class MideaBridge:
                 except Exception as exc:
                     reason = str(exc)
                 if reason is not None:
+                    self._publish_availability(False)
                     self._metrics.midea_connected.labels(device=self._name).set(0)
                     self._metrics.reconnects.labels(device=self._name, outcome="error").inc()
                     logger.warning(
@@ -192,6 +200,7 @@ class MideaBridge:
                 self._metrics.midea_connected.labels(device=self._name).set(1)
                 backoff = _RECONNECT_BACKOFF_START_SECONDS
                 logger.info("[%s] connected: %s", self._name, self._config.host)
+                self._publish_availability(True)
                 self._publish()
                 await self._reassert_pending()
 
@@ -223,6 +232,7 @@ class MideaBridge:
             # Drop the handle so the supervisor reconnects rather than polling
             # a dead socket forever.
             self._appliance = None
+            self._publish_availability(False)
             self._metrics.midea_connected.labels(device=self._name).set(0)
             return
         self._metrics.last_message_ts.labels(device=self._name).set(time.time())
@@ -263,6 +273,21 @@ class MideaBridge:
                 continue
             self._last[kind] = dict(payload)
             self._publisher.enqueue(self._name, kind, subject, payload)
+
+    def _publish_availability(self, online: bool) -> None:
+        """Publish a change in whether the bridge holds a live link to the appliance.
+
+        Separate from `state`, which carries what the appliance reports: when
+        the link is down there is nothing to report, and every status address
+        keeps its last value. Without this signal a consumer cannot tell a
+        settled appliance from an unreachable one.
+        """
+        if self._online == online:
+            return
+        self._online = online
+        self._publisher.enqueue(
+            self._name, "availability", self._config.availability_subject, {"online": online}
+        )
 
     # --- NATS -> appliance ------------------------------------------------
 
