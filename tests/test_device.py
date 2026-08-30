@@ -10,24 +10,35 @@ from typing import Any
 import pytest
 
 from midea_nats_bridge.config import Credentials, DeviceConfig, Settings
-from midea_nats_bridge.device import MideaBridge
+from midea_nats_bridge.device import CommandNotDeliveredError, MideaBridge
 from midea_nats_bridge.metrics import Metrics
 
 
-class FakeAppliance:
-    """Stand-in for the library's LanDevice."""
-
-    def __init__(self, online: bool) -> None:
+class FakeState:
+    def __init__(self, running: bool = False, mode: int = 1, online: bool = True) -> None:
+        self.running = running
+        self.mode = mode
         self.online = online
-        self.state = object()
 
 
-def test_has_data_follows_the_online_flag() -> None:
+class FakeAppliance:
+    """Stand-in for the library's LanDevice, whose own `online` says only that
+    the network exchange worked."""
+
+    def __init__(self, online: bool, state_online: bool = True) -> None:
+        self.online = online
+        self.state = FakeState(online=state_online)
+
+
+def test_has_data_needs_both_online_flags() -> None:
     # `refresh()` does not raise when the appliance answers nothing; it leaves
-    # state at mode 0 / fan_speed 40 / temperature 0 and online False. Those
-    # would reach a KNX group address as an invalid mode and 0 °C.
+    # state at mode 0 / fan_speed 40 / temperature 0. Those would reach a KNX
+    # group address as an invalid mode and 0 °C. LanDevice.online alone does
+    # not rule it out — the library raises that flag the moment an appliance
+    # answers discovery, with the state still at its constructor defaults.
     assert MideaBridge._has_data(FakeAppliance(online=True)) is True
     assert MideaBridge._has_data(FakeAppliance(online=False)) is False
+    assert MideaBridge._has_data(FakeAppliance(online=True, state_online=False)) is False
 
 
 def test_has_data_is_false_when_the_flag_is_missing() -> None:
@@ -37,12 +48,6 @@ def test_has_data_is_false_when_the_flag_is_missing() -> None:
         state: Any = object()
 
     assert MideaBridge._has_data(NoFlag()) is False
-
-
-class FakeState:
-    def __init__(self, running: bool = False, mode: int = 1) -> None:
-        self.running = running
-        self.mode = mode
 
 
 class ObedientAppliance:
@@ -117,6 +122,10 @@ def _confirmations(metrics: Metrics, function: str, outcome: str) -> float:
     return float(counter._value.get())
 
 
+def _pending(metrics: Metrics) -> float:
+    return float(metrics.pending_commands.labels(device="kg5")._value.get())
+
+
 async def test_confirmation_flags_a_command_the_appliance_refused(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -176,6 +185,85 @@ async def test_a_newer_command_owns_the_outcome(monkeypatch: pytest.MonkeyPatch)
     assert _confirmations(metrics, "power", "superseded") == 1
     assert _confirmations(metrics, "power", "confirmed") == 1
     assert _confirmations(metrics, "power", "mismatch") == 0
+
+
+async def test_a_command_the_appliance_never_got_is_held(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The failure this exists for: the appliance drops off the WLAN, the room
+    # alarm switches on, and the only telegram anyone will send is lost.
+    bridge, metrics, _ = _bridge(monkeypatch, ObedientAppliance())
+    bridge._appliance = None
+
+    with pytest.raises(CommandNotDeliveredError):
+        await bridge.apply_command("power", True)
+
+    assert bridge._pending == {"power": True}
+    assert _pending(metrics) == 1
+
+
+async def test_a_failed_round_trip_holds_the_command(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Connected is not delivered: the socket can still die mid-apply.
+    class BrokenAppliance(ObedientAppliance):
+        def apply(self) -> None:
+            raise OSError("timed out")
+
+    bridge, _, _ = _bridge(monkeypatch, BrokenAppliance())
+
+    with pytest.raises(CommandNotDeliveredError):
+        await bridge.apply_command("power", True)
+
+    assert bridge._pending == {"power": True}
+
+
+async def test_a_held_command_is_re_asserted_on_reconnect(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    appliance = ObedientAppliance()
+    bridge, metrics, publisher = _bridge(monkeypatch, appliance)
+    bridge._appliance = None
+    with pytest.raises(CommandNotDeliveredError):
+        await bridge.apply_command("power", True)
+
+    bridge._appliance = appliance  # as the supervisor does after a reconnect
+    await bridge._reassert_pending()
+    await _settle(bridge)
+
+    assert appliance._committed.running is True
+    assert bridge._pending == {}
+    assert _pending(metrics) == 0
+    assert _confirmations(metrics, "power", "confirmed") == 1
+    assert ("state", {"power": True, "mode": 1, "locked": False}) in publisher.published
+
+
+async def test_a_newer_command_replaces_the_held_one(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Switched back off while still unreachable: the appliance must not be woken
+    # by the superseded value once it answers again.
+    bridge, _, _ = _bridge(monkeypatch, ObedientAppliance())
+    bridge._appliance = None
+
+    for value in (True, False):
+        with pytest.raises(CommandNotDeliveredError):
+            await bridge.apply_command("power", value)
+
+    assert bridge._pending == {"power": False}
+
+
+async def test_a_locked_appliance_drops_held_commands(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The lock holds the appliance at its current setting, so a queued command
+    # is swallowed like any other rather than fired late.
+    appliance = ObedientAppliance()
+    bridge, _, _ = _bridge(monkeypatch, appliance)
+    bridge._appliance = None
+    with pytest.raises(CommandNotDeliveredError):
+        await bridge.apply_command("power", True)
+
+    bridge.set_lock(True)
+    bridge._appliance = appliance
+    await bridge._reassert_pending()
+
+    assert bridge._pending == {}
+    assert appliance._committed.running is False
 
 
 async def test_refresh_cannot_interleave_with_apply(monkeypatch: pytest.MonkeyPatch) -> None:
