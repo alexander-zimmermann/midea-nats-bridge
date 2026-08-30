@@ -1,6 +1,6 @@
 [project]
 name = "midea-nats-bridge"
-version = "0.5.0"
+version = "0.6.0"
 description = "Bridge Comfee/Midea dehumidifiers (local LAN protocol) to NATS JetStream"
 readme = "README.md"
 license = "MIT OR GPL-2.0-or-later"
