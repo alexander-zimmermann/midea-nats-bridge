@@ -18,7 +18,7 @@ classifiers = [
 ]
 dependencies = [
     "midea-beautiful-air>=0.10.7",
-    "nats-bridge-core @ git+https://github.com/alexander-zimmermann/nats-bridge-core@v0.4.0",
+    "nats-bridge-core @ git+https://github.com/alexander-zimmermann/nats-bridge-core@v0.5.0",
     "nats-py[nkeys]>=2.15.0",
     "prometheus-client>=0.26.0",
     "pydantic>=2.13.5",
