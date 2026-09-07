@@ -1,57 +1,8 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "config:recommended",
-    "helpers:pinGitHubActionDigests",
-    ":dependencyDashboard",
-    ":semanticCommits",
-    ":timezone(Europe/Berlin)",
+    "github>alexander-zimmermann/lares//.renovate/sidecarBase.json5",
+    "github>alexander-zimmermann/lares//.renovate/sidecarPython.json5",
+    "github>alexander-zimmermann/lares//.renovate/sidecarCoreDep.json5",
   ],
-  "dependencyDashboardTitle": "Renovate Dashboard 🤖",
-  "suppressNotifications": ["prEditedNotification", "prIgnoreNotification"],
-  "labels": ["renovate"],
-  "rangeStrategy": "bump",
-  "lockFileMaintenance": {
-    "enabled": true,
-    "schedule": ["before 6am on monday"],
-  },
-  // pep621 skips PEP 508 direct references, so the core dependency is
-  // tracked by its git tag here instead.
-  "customManagers": [
-    {
-      "customType": "regex",
-      "managerFilePatterns": ["/(^|/)pyproject\\.toml$/"],
-      "matchStrings": [
-        "git\\+https://github\\.com/(?<depName>[^@\\s\"]+?)@(?<currentValue>v[^\\s\"]+)",
-      ],
-      "datasourceTemplate": "github-tags",
-      "versioningTemplate": "semver",
-    },
-  ],
-  "packageRules": [
-    {
-      "matchManagers": ["github-actions"],
-      "groupName": "github-actions",
-      "automerge": true,
-      "automergeType": "pr",
-      "platformAutomerge": true,
-    },
-    {
-      "matchManagers": ["dockerfile"],
-      "matchPackageNames": ["python"],
-      "groupName": "python base image",
-    },
-    {
-      "matchManagers": ["pep621"],
-      "matchUpdateTypes": ["patch", "minor"],
-      "groupName": "python deps (non-major)",
-    },
-    {
-      "matchManagers": ["pre-commit"],
-      "groupName": "pre-commit",
-    },
-  ],
-  "pre-commit": {
-    "enabled": true,
-  },
 }
