@@ -9,7 +9,7 @@ import signal
 import sys
 import time
 
-from nats_bridge_core import Publisher
+from nats_bridge_core import Publisher, tracing
 from nats_bridge_core import configure as configure_logging
 from nats_bridge_core import serve as serve_metrics
 from nats_bridge_core import watchdog_ok as logger_watchdog_ok
@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 async def _amain() -> int:
     settings = Settings()
     configure_logging(settings.log_level, settings.log_format)
+    tracing.configure(settings, service_name="midea-nats-bridge")
     logger.info("midea-nats-bridge starting")
 
     devices = settings.load_devices()
@@ -85,6 +86,7 @@ async def _amain() -> int:
         http_server.close()
         with contextlib.suppress(Exception):
             await http_server.wait_closed()
+        tracing.shutdown()
 
     return 0
 
