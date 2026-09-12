@@ -6,6 +6,8 @@ import json
 from typing import Any
 
 import pytest
+from opentelemetry import trace
+from opentelemetry.sdk.trace import Span
 
 from midea_nats_bridge.commands import CommandHandler, parse_command, split_subject
 from midea_nats_bridge.config import Settings
@@ -143,3 +145,16 @@ async def test_handler_counts_appliance_errors() -> None:
     await handler._on_command(FakeMsg("midea.hwr.command.power", _payload(True)))  # type: ignore[arg-type]
 
     assert _counter_value(metrics, "hwr", "power", "error") == 1
+
+
+@pytest.mark.asyncio
+async def test_command_outcome_lands_on_the_active_span() -> None:
+    handler, _ = _handler(Metrics(), vorratsraum=FakeBridge())
+
+    with trace.get_tracer("test").start_as_current_span("process") as span:
+        await handler._on_command(FakeMsg("midea.vorratsraum.command.mode", _payload(1)))  # type: ignore[arg-type]
+
+    assert isinstance(span, Span) and span.attributes is not None
+    assert span.attributes["command.device"] == "vorratsraum"
+    assert span.attributes["command.function"] == "mode"
+    assert span.attributes["command.outcome"] == "ok"

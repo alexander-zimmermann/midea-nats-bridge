@@ -8,6 +8,7 @@ from typing import Any
 
 from nats.aio.msg import Msg
 from nats_bridge_core import Publisher
+from opentelemetry import trace
 
 from .config import Settings
 from .device import COMMAND_FUNCTIONS, CommandNotDeliveredError, MideaBridge
@@ -98,6 +99,10 @@ class CommandHandler:
 
     def _count(self, device: str, function: str, outcome: str) -> None:
         self._metrics.commands.labels(device=device, function=function, outcome=outcome).inc()
+        # The same labels on the command span, so a trace shows what became of it.
+        trace.get_current_span().set_attributes(
+            {"command.device": device, "command.function": function, "command.outcome": outcome}
+        )
 
     async def _on_command(self, msg: Msg) -> None:
         # Best-effort labels for the failure paths; parse_command() refines them.
