@@ -547,7 +547,7 @@ dev = [
 requires-dist = [
     { name = "midea-beautiful-air", specifier = ">=0.10.7" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=2.3.1" },
-    { name = "nats-bridge-core", git = "https://github.com/alexander-zimmermann/nats-bridge-core?rev=e17f391f3a2a57169104880ae7b07912a951aab1" },
+    { name = "nats-bridge-core", git = "https://github.com/alexander-zimmermann/nats-bridge-core?rev=v0.6.0" },
     { name = "nats-py", extras = ["nkeys"], specifier = ">=2.15.0" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=4.6.2" },
     { name = "prometheus-client", specifier = ">=0.26.0" },
@@ -615,8 +615,8 @@ wheels = [
 
 [[package]]
 name = "nats-bridge-core"
-version = "0.5.0"
-source = { git = "https://github.com/alexander-zimmermann/nats-bridge-core?rev=e17f391f3a2a57169104880ae7b07912a951aab1#e17f391f3a2a57169104880ae7b07912a951aab1" }
+version = "0.6.0"
+source = { git = "https://github.com/alexander-zimmermann/nats-bridge-core?rev=v0.6.0#495ac409b84c35cf45550e8a05d5b5a55c55a527" }
 dependencies = [
     { name = "nats-py", extra = ["nkeys"] },
     { name = "opentelemetry-api" },
