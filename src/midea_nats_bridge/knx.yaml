@@ -1,0 +1,57 @@
+# KNX descriptor (schema: nats-bridge-core knx-descriptor.schema.json).
+# Per published field the datapoint name on the bus, the DPT this bridge serves
+# and the writer behaviour. Product family only: which dehumidifiers exist and
+# which group addresses they get is bound in lares.
+subjects:
+  state:
+    fields:
+      locked:
+        datapoint: Sperren-Status
+        dpt: "1.011"
+        seed_on_start: true
+        min_delta: 0
+      power:
+        datapoint: Ein/Aus-Status
+        dpt: "1.011"
+        seed_on_start: true
+        min_delta: 0
+      # mode and fan_speed carry the appliance's own integers, untranslated (see normalize.py)
+      mode:
+        datapoint: Modus-Status
+        dpt: "5.010"
+        seed_on_start: true
+        min_delta: 0
+      fan_speed:
+        datapoint: Lüfterstufe-Status
+        dpt: "5.010"
+        seed_on_start: true
+        min_delta: 0
+      target_humidity:
+        datapoint: Soll-Luftfeuchtigkeit-Status
+        dpt: "5.001"
+        seed_on_start: true
+        min_delta: 0
+      tank_full:
+        datapoint: Tank-Voll-Status
+        dpt: "1.005"
+        seed_on_start: true
+        min_delta: 0
+  environment:
+    fields:
+      humidity:
+        datapoint: Luftfeuchtigkeit
+        dpt: "9.007"
+        seed_on_start: true
+        min_delta: 1
+      temperature_c:
+        datapoint: Temperatur
+        dpt: "9.001"
+        seed_on_start: true
+        min_delta: 0.5
+  availability:
+    fields:
+      online:
+        datapoint: Verbindung-Status
+        dpt: "1.011"
+        seed_on_start: true
+        min_delta: 0
