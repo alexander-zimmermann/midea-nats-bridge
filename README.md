@@ -137,6 +137,19 @@ returns nothing. Only the `Appliance` object's own `online` — set when a statu
 response is parsed — means the values are real, which is why the bridge requires
 both before publishing.
 
+## KNX descriptor
+
+`knx.yaml` at the package root declares which fields of `state`, `environment`
+and `availability` are meant for the bus, under which datapoint name, with which
+DPT and writer behaviour — the format `nats-bridge-core` defines. lares binds
+each dehumidifier to its group-address name prefix and generates the writer
+rules from both; the descriptor itself knows no devices and no addresses. `mode`
+and `fan_speed` carry the appliance's own integers (see above) on DPT 5.010; the
+descriptor invents no enum. A test runs one poll and the stop through the bridge
+and fails on any subject or field the published payloads do not carry —
+`locked` and `online` are added by the bridge itself, not by the normalizer, so
+the test reads what leaves the process.
+
 ## Devices
 
 Non-secret details live in a YAML file (`MIDEA_DEVICES_FILE`), the token/key
