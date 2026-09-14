@@ -15,6 +15,6 @@ jobs:
     permissions:
       contents: read
       packages: write
-    uses: alexander-zimmermann/lares/.github/workflows/sidecar-python-release.yaml@338a1cc0d56f0f53be5f0e0620a29b80a7cb70a6 # main
+    uses: alexander-zimmermann/lares/.github/workflows/sidecar-python-release.yaml@890547742a1141ba4a24bb6ed3b50c1fb4901082 # main
     with:
       tag: ${{ github.event.inputs.tag || '' }}
