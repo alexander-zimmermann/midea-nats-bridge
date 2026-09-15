@@ -20,6 +20,9 @@ class DeviceConfig(BaseModel):
     name: str
     host: str
     subject_prefix: str = "midea"
+    # Group-address name prefix lares binds this device to; read by the lares
+    # mapping generator, never by the bridge.
+    ga_name: str = ""
 
     @field_validator("name", "subject_prefix")
     @classmethod
