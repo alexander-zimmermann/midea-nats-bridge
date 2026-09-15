@@ -41,6 +41,27 @@ def test_device_rejects_unknown_keys() -> None:
         DeviceConfig(name="x", host="a.local", typo="oops")  # type: ignore[call-arg]
 
 
+def test_ga_name_binding_is_optional() -> None:
+    assert DeviceConfig(name="x", host="a.local").ga_name == ""
+
+
+def test_load_devices_carries_ga_name_binding(tmp_path: Path) -> None:
+    # lares binds the device to its group-address name prefix in this very
+    # file; the bridge has to let the key through, or the ConfigMap that
+    # carries the binding kills the pod.
+    path = _devices_file(
+        tmp_path,
+        """
+        devices:
+          - name: vorratsraum
+            host: entfeuchter-vorratsraum.local
+            ga_name: Raumklima.KG.Vorratsraum.Entfeuchter
+        """,
+    )
+    (device,) = _settings(midea_devices_file=path).load_devices()
+    assert device.ga_name == "Raumklima.KG.Vorratsraum.Entfeuchter"
+
+
 def test_load_devices_stamps_subject_prefix(tmp_path: Path) -> None:
     path = _devices_file(
         tmp_path,

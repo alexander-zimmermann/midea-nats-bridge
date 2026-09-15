@@ -162,10 +162,13 @@ host keeps a device called the same thing in DNS, in NATS and in the Secret.
 devices:
   - name: basement
     host: dehumidifier-basement.example.com
+    ga_name: Raumklima.KG.Vorratsraum.Entfeuchter # optional, read by lares only
   - name: cellar
     host: dehumidifier-cellar.example.com
 ```
 
+`ga_name` is the group-address name prefix lares binds the device to (see
+[KNX descriptor](#knx-descriptor)); the bridge accepts it and ignores it.
 Duplicate names, an empty list, and unknown keys are rejected at startup.
 
 ## One-time credential bootstrap
