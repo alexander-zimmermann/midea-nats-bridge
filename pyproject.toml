@@ -4,7 +4,7 @@ version = "0.13.0"
 description = "Bridge Comfee/Midea dehumidifiers (local LAN protocol) to NATS JetStream"
 readme = "README.md"
 license = "MIT OR GPL-2.0-or-later"
-requires-python = ">=3.14.7"
+requires-python = ">=3.14.8"
 authors = [
     { name = "Alexander Zimmermann" },
 ]
