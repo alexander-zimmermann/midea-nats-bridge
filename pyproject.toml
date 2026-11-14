@@ -21,17 +21,17 @@ dependencies = [
     "nats-bridge-core @ git+https://github.com/alexander-zimmermann/nats-bridge-core@v0.10.0",
     "nats-py[nkeys]>=2.16.0",
     "prometheus-client>=0.26.0",
-    "pydantic>=2.14.2",
-    "pydantic-settings>=2.16.2",
+    "pydantic>=2.14.3",
+    "pydantic-settings>=2.16.3",
     "pyyaml>=6.0.3",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=9.2.0",
-    "pytest-asyncio>=1.4.1",
+    "pytest-asyncio>=1.5.0",
     "pytest-cov>=7.1.0",
-    "ruff>=0.17.3",
+    "ruff>=0.17.5",
     "mypy>=2.4.1",
     "pre-commit>=4.7.0",
     "types-PyYAML",
